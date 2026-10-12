@@ -8,7 +8,7 @@
     "node": ">=22.13 <25"
   },
   "bin": {
-    "shiplog": "./dist-server/cli.js"
+    "shiplog": "./dist-server/shiplog.js"
   },
   "scripts": {
     "dev": "tsx watch src/server/index.ts",
@@ -16,7 +16,7 @@
     "build": "npm run typecheck && npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "vite build --ssr src/server/index.ts --outDir dist-server && vite build --ssr src/cli/shiplog.ts --outDir dist-server --emptyOutDir false",
-    "start": "node dist-server/index.js",
+    "start": "NODE_ENV=production node --disable-warning=ExperimentalWarning dist-server/index.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write .",

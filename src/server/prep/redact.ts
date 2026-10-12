@@ -58,6 +58,21 @@ function looksLikeCode(value: string): boolean {
   );
 }
 
+/**
+ * Password-like names redact any value. Other names (token, key, secret, auth) redact only
+ * values that look like credentials, so `TOKEN_KEY = "app-token"` or `authMode = "oauth"`
+ * survive while `apiKey = "abcd1234efgh5678"` does not.
+ */
+function assignmentLooksSecret(prefix: string, value: string): boolean {
+  const quoted = /["'`]$/.test(prefix);
+  if (!quoted && looksLikeCode(value)) return false;
+  if (/pass(word|wd)?|pwd/i.test(prefix)) return true;
+  const hasDigit = /\d/.test(value);
+  const hasLetter = /[A-Za-z]/.test(value);
+  const mixedCase = /[a-z]/.test(value) && /[A-Z]/.test(value);
+  return (hasDigit && hasLetter) || (mixedCase && value.length >= 20) || value.length >= 40;
+}
+
 export interface RedactionResult {
   text: string;
   count: number;
@@ -79,7 +94,7 @@ export function redactSecrets(input: string): RedactionResult {
       const groups = args.slice(1, -2).map((value) => (value === undefined ? "" : String(value)));
       const secret = groups[rule.group - 1] ?? "";
       if (!secret || placeholderPattern.test(secret) || secret.includes(REDACTED)) return match;
-      if (rule.kind === "assignment" && !/["'`]$/.test(groups[0] ?? "") && looksLikeCode(secret)) {
+      if (rule.kind === "assignment" && !assignmentLooksSecret(groups[0] ?? "", secret)) {
         return match;
       }
       count += 1;

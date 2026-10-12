@@ -31,6 +31,10 @@ describe("redactSecrets", () => {
     expect(redactSecrets(`+${block}`).text).toBe(`+${REDACTED}`);
   });
 
+  it("redacts any password value, even without digits", () => {
+    expect(redactSecrets('+password: "correcthorsebattery"').text).toBe(`+password: "${REDACTED}"`);
+  });
+
   it("redacts secret assignments and URL passwords but keeps the key names", () => {
     const result = redactSecrets(
       [
@@ -51,6 +55,8 @@ describe("redactSecrets", () => {
       "+const password = readPassword();",
       "+const token = response.data.accessToken;",
       "+const authHeader = buildHeader;",
+      '+const TOKEN_KEY = "shiplog-app-token";',
+      '+const authMode = "oauth-device-flow";',
       "+export function tokenize(text: string) { return text.split(' '); }",
       "+// rename secretSauce to recipe",
       '+const api_key = "${API_KEY}";',
