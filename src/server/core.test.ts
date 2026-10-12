@@ -194,4 +194,21 @@ describe("cards", () => {
     expect(svg).toContain("two &lt;tag&gt;");
     expect(pickSnippet({ patch: "" })).toBeNull();
   });
+
+  it("prefers source files over config files for code cards", () => {
+    const snippet = pickSnippet({
+      patch: [
+        "diff --git a/package.json b/package.json",
+        "@@ -1 +1,5 @@",
+        "+a",
+        "+b",
+        "+c",
+        "+d",
+        "diff --git a/src/app.ts b/src/app.ts",
+        "@@ -1 +1,2 @@",
+        "+export const ship = true;",
+      ].join("\n"),
+    });
+    expect(snippet?.path).toBe("src/app.ts");
+  });
 });

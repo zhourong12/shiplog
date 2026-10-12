@@ -1,6 +1,6 @@
 import type { Draft } from "../../shared/schemas.js";
 import { checkClaims, type ClaimContext } from "./claimGuard.js";
-import { checkPlatformRules } from "./platformRules.js";
+import { checkPlatformRules } from "../../shared/platformRules.js";
 
 /** Run every deterministic check and set the draft status from the result. */
 export function guardDraft(draft: Omit<Draft, "issues" | "status">, context: ClaimContext): Draft {

@@ -118,8 +118,9 @@ export function renderStatsCard(input: StatsCardInput): string {
   if (totalLines === 0) {
     parts.push(text(PAD, y + 48, "暂无", 24, tokens.textMuted));
   } else {
-    const shown = languages.slice(0, 4);
-    const rest = languages.slice(4).reduce((sum, item) => sum + item.lines, 0);
+    // Slivers under 2% are unreadable as segments; they join "其他".
+    const shown = languages.slice(0, 4).filter((item) => item.lines / totalLines >= 0.02);
+    const rest = totalLines - shown.reduce((sum, item) => sum + item.lines, 0);
     const segments = [
       ...shown.map((item, index) => ({
         label: item.language,
@@ -145,7 +146,8 @@ export function renderStatsCard(input: StatsCardInput): string {
     let legendX = PAD;
     let legendY = y + 88;
     for (const segment of segments) {
-      const label = `${segment.label} ${Math.round((segment.lines / totalLines) * 100)}%`;
+      const share = Math.round((segment.lines / totalLines) * 100);
+      const label = `${segment.label} ${share < 1 ? "<1" : share}%`;
       const itemWidth = 26 + estimateTextWidth(label, 24) + 32;
       if (legendX + itemWidth > WIDTH - PAD) {
         legendX = PAD;

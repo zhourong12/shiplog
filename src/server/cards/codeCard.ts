@@ -14,10 +14,20 @@ export type Snippet = CodeSnippet;
 
 const MAX_LINES = 18;
 
+/** Config and prose files make dull code cards; prefer real source files when there are any. */
+const lowInterest =
+  /\.(json|jsonc|md|mdx|txt|ya?ml|toml|ini|cfg|csv|lock|svg|xml|html?)$|(^|\/)\.[^/]+$/i;
+
 /** Pick the hunk with the most added lines from an already filtered and redacted patch. */
 export function pickSnippet(commit: Pick<CommitRecord, "patch">): Snippet | null {
+  const files = splitUnifiedDiff(commit.patch);
+  const preferred = files.filter((file) => !lowInterest.test(file.path));
+  return pickFrom(preferred) ?? pickFrom(files);
+}
+
+function pickFrom(files: ReturnType<typeof splitUnifiedDiff>): Snippet | null {
   let best: { path: string; lines: Snippet["lines"]; added: number } | null = null;
-  for (const file of splitUnifiedDiff(commit.patch)) {
+  for (const file of files) {
     const hunks = file.text.split(/\n(?=@@ )/).filter((hunk) => hunk.startsWith("@@"));
     for (const hunk of hunks) {
       const lines = hunk

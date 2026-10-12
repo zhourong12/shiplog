@@ -1,4 +1,4 @@
-import type { Draft, GuardIssue, PlatformId } from "../../shared/schemas.js";
+import type { Draft, GuardIssue, PlatformId } from "./schemas.js";
 
 export interface PlatformSpec {
   id: PlatformId;

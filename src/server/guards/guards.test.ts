@@ -8,7 +8,7 @@ import {
   composeUrl,
   splitThread,
   xWeightedLength,
-} from "./platformRules.js";
+} from "../../shared/platformRules.js";
 
 describe("xWeightedLength", () => {
   it("counts Latin as 1, CJK as 2, URLs as 23 and emoji as 2", () => {

@@ -10,7 +10,7 @@ import {
   type PlatformId,
   type VoiceProfile,
 } from "../../shared/schemas.js";
-import { platformSpecs } from "../guards/platformRules.js";
+import { platformSpecs } from "../../shared/platformRules.js";
 
 export const UnderstandOutputSchema = z.object({
   dayHeadline: z.string(),

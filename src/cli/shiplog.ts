@@ -11,7 +11,7 @@ import {
   platformSpecs,
   splitThread,
   xWeightedLength,
-} from "../server/guards/platformRules.js";
+} from "../shared/platformRules.js";
 import {
   buildActivity,
   changeBreakdown,

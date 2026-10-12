@@ -91,9 +91,7 @@ const kindOrder: Array<StoryKind | "other"> = [
   "other",
 ];
 
-export function groupCommitsByKind(
-  commits: CommitRecord[],
-): Array<{
+export function groupCommitsByKind(commits: CommitRecord[]): Array<{
   kind: StoryKind | "other";
   items: Array<{ commit: CommitRecord; parsed: ParsedSubject }>;
 }> {
