@@ -80,6 +80,11 @@
   box-sizing: border-box;
 }
 
+/* Keep focused or scrolled-to content clear of the sticky top bar. */
+html {
+  scroll-padding-top: 96px;
+}
+
 body {
   margin: 0;
   background: var(--surface-0);
@@ -289,7 +294,13 @@ main {
     padding: 16px;
   }
 
+  /* The wrapped top bar is too tall to pin on phones; let it scroll away. */
+  html {
+    scroll-padding-top: 0;
+  }
+
   .topbar {
+    position: static;
     padding: 12px 16px;
   }
 
