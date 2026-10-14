@@ -7,7 +7,7 @@ import { createApp } from "./app.js";
 import { StripeBilling } from "./billing/stripe.js";
 import { smtpMailer } from "./scheduler/notify.js";
 import { ScheduleService, SchedulerLoop } from "./scheduler/scheduler.js";
-import { loadConfig } from "./config.js";
+import { configProblems, loadConfig } from "./config.js";
 import { openDatabase } from "./db/database.js";
 import { ShipLogService } from "./services/shiplogService.js";
 
@@ -27,6 +27,11 @@ async function clientMiddleware(isProduction: boolean): Promise<express.RequestH
 
 async function main() {
   const config = loadConfig();
+  const problems = configProblems(config);
+  for (const warning of problems.warnings) console.warn(`[shiplog] 注意：${warning}`);
+  if (problems.errors.length > 0) {
+    throw new Error(problems.errors.join(" "));
+  }
   const db = openDatabase(config.dbPath);
   const service = new ShipLogService({
     db,
@@ -42,7 +47,9 @@ async function main() {
     service,
     mailer: config.smtp ? smtpMailer(config.smtp) : null,
   });
-  if (config.schedulerEnabled) new SchedulerLoop(schedules).start();
+  schedules.store.failInterrupted();
+  const loop = config.schedulerEnabled ? new SchedulerLoop(schedules) : null;
+  loop?.start();
   const app = createApp({
     service,
     config,
@@ -50,7 +57,7 @@ async function main() {
     schedules,
     clientMiddleware: await clientMiddleware(config.isProduction),
   });
-  app.listen(config.port, config.host, () => {
+  const server = app.listen(config.port, config.host, () => {
     console.log(`ShipLog 已启动：http://${config.host}:${config.port}`);
     console.log(
       config.aiConfigured
@@ -58,6 +65,23 @@ async function main() {
         : "AI：未配置 ANTHROPIC_API_KEY，只生成更新日志和数据卡",
     );
   });
+
+  // Containers stop with SIGTERM: finish in-flight requests, then close the database cleanly.
+  let stopping = false;
+  const shutdown = (signal: string) => {
+    if (stopping) return;
+    stopping = true;
+    console.log(`收到 ${signal}，正在停止…`);
+    loop?.stop();
+    setTimeout(() => process.exit(0), 10_000).unref();
+    server.close(() => {
+      db.close();
+      process.exit(0);
+    });
+    server.closeIdleConnections();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 main().catch((error: unknown) => {

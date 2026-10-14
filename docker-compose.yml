@@ -1,0 +1,24 @@
+# docker compose up -d   →   http://localhost:8792
+# Settings come from .env (copy .env.example). The database lives in the shiplog-data volume.
+services:
+  shiplog:
+    build: .
+    image: shiplog:latest
+    restart: unless-stopped
+    ports:
+      - "8792:8792"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8792
+      SHIPLOG_DB_PATH: /data/shiplog.db
+    volumes:
+      - shiplog-data:/data
+      # Self-hosted mode: mount the folders that hold your repositories (read-only)
+      # and set SHIPLOG_LOCAL_ROOTS=/repos in .env.
+      # - ~/code:/repos:ro
+
+volumes:
+  shiplog-data:

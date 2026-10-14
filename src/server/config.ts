@@ -106,3 +106,45 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, cwd = process.c
     isProduction,
   };
 }
+
+/**
+ * Settings that would only fail later, at a bad moment (a user's first login, a payment),
+ * reported at startup instead. Errors stop the server; warnings are printed.
+ */
+export function configProblems(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): { errors: string[]; warnings: string[] } {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const encryptionKey = env.SHIPLOG_ENCRYPTION_KEY?.trim();
+  if (encryptionKey && encryptionKey.length < 24) {
+    errors.push("SHIPLOG_ENCRYPTION_KEY 至少需要 24 位。");
+  }
+  if (config.isProduction && !encryptionKey) {
+    (config.authMode === "github" ? errors : warnings).push(
+      "生产环境未配置 SHIPLOG_ENCRYPTION_KEY：无法保存 GitHub 令牌和 Webhook 地址。",
+    );
+  }
+  const localUrl = /^http:\/\/(127\.0\.0\.1|localhost)(:|\/|$)/.test(config.publicBaseUrl);
+  if (config.authMode === "github" && config.isProduction && localUrl) {
+    warnings.push(
+      "PUBLIC_BASE_URL 还是本机地址：GitHub 登录回调、付款跳转和提醒里的链接都会打不开。",
+    );
+  }
+  const stripeVars = [env.STRIPE_SECRET_KEY, env.STRIPE_PRICE_ID, env.STRIPE_WEBHOOK_SECRET];
+  if (!config.stripe && stripeVars.some((value) => value?.trim())) {
+    warnings.push(
+      "Stripe 配置不完整（需要 STRIPE_SECRET_KEY、STRIPE_PRICE_ID 和 STRIPE_WEBHOOK_SECRET），付款未启用。",
+    );
+  }
+  if (config.stripe && config.authMode !== "github") {
+    warnings.push("付款需要 GitHub 登录（多用户模式），自用模式下已忽略 Stripe 配置。");
+  }
+  if (config.isProduction && config.authMode === "local" && !config.appToken) {
+    warnings.push(
+      "自用模式未设置 SHIPLOG_APP_TOKEN：能访问这个端口的人都能使用你的 AI 额度和仓库。",
+    );
+  }
+  return { errors, warnings };
+}

@@ -304,6 +304,17 @@ describe("scheduled runs", () => {
     });
   });
 
+  it("marks runs cut off by a restart as failed", async () => {
+    const { schedules, user } = await setup();
+    schedules.store.startRun(user.id, "schedule");
+    expect(schedules.store.failInterrupted()).toBe(1);
+    expect(schedules.store.runs(user.id)[0]).toMatchObject({
+      status: "failed",
+      message: "服务重启，这次运行被中断。",
+    });
+    expect(schedules.store.failInterrupted()).toBe(0);
+  });
+
   it("never overlaps passes", async () => {
     let calls = 0;
     let release: () => void = () => undefined;

@@ -55,6 +55,19 @@ function resolveUser(service: ShipLogService, req: Request): CurrentUser | null 
   return service.userForSession(parseCookies(req.get("cookie"))[SESSION_COOKIE]);
 }
 
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  // Avatars come from GitHub (or a GitHub Enterprise host); cards are data: and blob: URLs.
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 export function createApp({
   service,
   config,
@@ -71,6 +84,8 @@ export function createApp({
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "same-origin");
     res.setHeader("X-Frame-Options", "DENY");
+    // The built client is all same-origin files; the Vite dev server needs inline scripts.
+    if (config.isProduction) res.setHeader("Content-Security-Policy", contentSecurityPolicy);
     next();
   });
 

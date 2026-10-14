@@ -134,6 +134,17 @@ export class ScheduleStore {
     return result.changes > 0;
   }
 
+  /** Runs still marked running were cut off by a restart; record that instead of leaving them. */
+  failInterrupted(now = new Date()): number {
+    const result = this.db
+      .prepare(
+        `UPDATE schedule_runs SET status = 'failed', message = '服务重启，这次运行被中断。', finished_at = ?
+         WHERE status = 'running'`,
+      )
+      .run(now.toISOString());
+    return Number(result.changes);
+  }
+
   startRun(userId: number, trigger: ScheduleRun["trigger"], now = new Date()): number {
     const result = this.db
       .prepare(

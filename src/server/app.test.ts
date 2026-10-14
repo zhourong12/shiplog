@@ -159,6 +159,22 @@ describe("API", () => {
     ctx = setup();
   });
 
+  it("sends security headers, with a content security policy in production", async () => {
+    const dev = await request(ctx.app).get("/api/health").expect(200);
+    expect(dev.headers["x-frame-options"]).toBe("DENY");
+    expect(dev.headers["content-security-policy"]).toBeUndefined();
+    const service = new ShipLogService({
+      db: openDatabase(":memory:"),
+      config: testConfig({ isProduction: true }),
+      llmFactory: () => null,
+    });
+    const prod = await request(createApp({ service, config: testConfig({ isProduction: true }) }))
+      .get("/api/health")
+      .expect(200);
+    expect(prod.headers["content-security-policy"]).toContain("script-src 'self'");
+    expect(prod.headers["content-security-policy"]).toContain("frame-ancestors 'none'");
+  });
+
   it("reports health without auth and enforces the app token elsewhere", async () => {
     const secured = setup({ appToken: "secret-app-token" });
     const health = await request(secured.app).get("/api/health").expect(200);

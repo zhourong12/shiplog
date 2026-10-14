@@ -1,6 +1,6 @@
 {
   "name": "shiplog",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "ShipLog（码上说）：把每天的 git 提交自动写成开发日记和多平台 build-in-public 草稿",
   "type": "module",
