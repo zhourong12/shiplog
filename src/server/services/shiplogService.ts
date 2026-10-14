@@ -434,8 +434,21 @@ export class ShipLogService {
     platforms: PlatformId[],
     today: string,
   ): Promise<GenerationResult> {
+    return (await this.generateIfAny(user, repoId, window, platforms, today, false))!;
+  }
+
+  /** Like generate, but returns null (and saves nothing) when skipIfEmpty and there are no commits. */
+  async generateIfAny(
+    user: CurrentUser,
+    repoId: number,
+    window: CollectionWindow,
+    platforms: PlatformId[],
+    today: string,
+    skipIfEmpty: boolean,
+  ): Promise<GenerationResult | null> {
     const repo = this.requireRepo(user, repoId);
     const collection = await this.collect(user, repo, window);
+    if (skipIfEmpty && collection.commits.length === 0) return null;
     const activity = await this.activity(user, repoId, today, 14).catch(() => null);
     const { llm, reason } = this.aiAvailability(user);
 

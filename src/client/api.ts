@@ -9,6 +9,9 @@ import type {
   PlatformId,
   PreviewReport,
   RepoSummary,
+  ScheduleReport,
+  ScheduleRun,
+  WebhookKind,
   UsageReport,
   VoiceProfile,
   VoiceState,
@@ -94,6 +97,19 @@ export async function fetchSvg(path: string): Promise<string> {
   return response.text();
 }
 
+export interface ScheduleInput {
+  enabled: boolean;
+  repoId: number | null;
+  time: string;
+  timezone: string;
+  platforms: PlatformId[];
+  windowHours: number;
+  skipEmpty: boolean;
+  notifyEmail: string | null;
+  webhookKind: WebhookKind | null;
+  webhookUrl?: string;
+}
+
 export interface TimeWindow {
   since: string;
   until: string;
@@ -146,6 +162,11 @@ export const api = {
   saveVoice: (profile: VoiceProfile) => call<VoiceState>("PUT", "/api/voice", { profile }),
   learnVoice: (samples: string) => call<VoiceState>("POST", "/api/voice/learn", { samples }),
   usage: () => call<UsageReport>("GET", "/api/usage"),
+  schedule: () => call<ScheduleReport>("GET", "/api/schedule"),
+  saveSchedule: (input: ScheduleInput) => call<ScheduleReport>("PUT", "/api/schedule", input),
+  testSchedule: () => call<{ sent: string[]; errors: string[] }>("POST", "/api/schedule/test"),
+  runSchedule: () =>
+    call<{ run: ScheduleRun; report: ScheduleReport }>("POST", "/api/schedule/run"),
   billingCheckout: () => call<{ url: string }>("POST", "/api/billing/checkout"),
   billingPortal: () => call<{ url: string }>("POST", "/api/billing/portal"),
 };

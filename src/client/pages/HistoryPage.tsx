@@ -6,7 +6,14 @@ import { GenerationView } from "../components/GenerationView";
 import { Badge, ErrorNotice, Spinner, formatDateTime } from "../components/ui";
 import { useI18n, type TranslationKey } from "../i18n";
 
-export function HistoryPage() {
+export function HistoryPage({
+  openId = null,
+  onClose,
+}: {
+  /** Generation to open, from a #history/<id> link (e.g. in a reminder email). */
+  openId?: string | null;
+  onClose?: () => void;
+}) {
   const { t, lang } = useI18n();
   const [items, setItems] = useState<GenerationSummary[] | null>(null);
   const [error, setError] = useState<unknown>(null);
@@ -20,6 +27,18 @@ export function HistoryPage() {
   }, []);
   useEffect(load, [load]);
 
+  useEffect(() => {
+    if (!openId) return;
+    let cancelled = false;
+    api.generation(openId).then(
+      (result) => !cancelled && setOpen(result),
+      (caught: unknown) => !cancelled && setError(caught),
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
   if (open) {
     return (
       <div className="page">
@@ -28,6 +47,7 @@ export function HistoryPage() {
           className="btn btn-quiet back"
           onClick={() => {
             setOpen(null);
+            onClose?.();
             load();
           }}
         >

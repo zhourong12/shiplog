@@ -8,6 +8,8 @@ import { SecretKeyError } from "./db/secrets.js";
 import { accountRoutes } from "./routes/account.js";
 import { authRoutes } from "./routes/auth.js";
 import { billingRoutes, billingWebhookRoutes } from "./routes/billing.js";
+import { scheduleRoutes } from "./routes/schedule.js";
+import type { ScheduleService } from "./scheduler/scheduler.js";
 import { workspaceRoutes } from "./routes/workspace.js";
 import { HttpError } from "./services/errors.js";
 import { toHttpError, type CurrentUser, type ShipLogService } from "./services/shiplogService.js";
@@ -19,6 +21,8 @@ export interface AppOptions {
   config: AppConfig;
   /** Stripe billing; null when payments are not configured. */
   billing?: StripeBilling | null;
+  /** Daily schedules; omitted in tests that do not need them. */
+  schedules?: ScheduleService | null;
   /** Routers mounted before the JSON body parser (they need the raw body, e.g. webhooks). */
   rawRoutes?: express.Router[];
   /** Extra authenticated API routers (billing, schedules…). */
@@ -55,6 +59,7 @@ export function createApp({
   service,
   config,
   billing = null,
+  schedules = null,
   rawRoutes = [],
   apiRoutes = [],
   clientMiddleware = [],
@@ -129,6 +134,7 @@ export function createApp({
   app.use(workspaceRoutes(service));
   app.use(accountRoutes(service));
   app.use(billingRoutes(service, billing));
+  if (schedules) app.use(scheduleRoutes(schedules));
   for (const router of apiRoutes) app.use(router);
 
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "not_found", "接口不存在。")));

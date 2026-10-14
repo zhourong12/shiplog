@@ -1,4 +1,13 @@
-import { Bot, CalendarDays, History, Languages, LogOut, PenLine, Settings } from "lucide-react";
+import {
+  AlarmClock,
+  Bot,
+  CalendarDays,
+  History,
+  Languages,
+  LogOut,
+  PenLine,
+  Settings,
+} from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { HealthReport, MeReport, RepoSummary, UsageReport } from "../shared/schemas";
 import { ApiError, api } from "./api";
@@ -6,24 +15,27 @@ import { ErrorNotice, Spinner } from "./components/ui";
 import { useI18n, type TranslationKey } from "./i18n";
 import { HistoryPage } from "./pages/HistoryPage";
 import { LandingPage } from "./pages/LandingPage";
+import { SchedulePage } from "./pages/SchedulePage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TodayPage } from "./pages/TodayPage";
 import { VoicePage } from "./pages/VoicePage";
 
-type PageId = "today" | "history" | "voice" | "settings";
-const pageIds: PageId[] = ["today", "history", "voice", "settings"];
+type PageId = "today" | "history" | "schedule" | "voice" | "settings";
+const pageIds: PageId[] = ["today", "history", "schedule", "voice", "settings"];
 
 const nav: Array<{ id: PageId; label: TranslationKey; icon: ReactNode }> = [
   { id: "today", label: "nav.today", icon: <CalendarDays aria-hidden="true" size={18} /> },
   { id: "history", label: "nav.history", icon: <History aria-hidden="true" size={18} /> },
+  { id: "schedule", label: "nav.schedule", icon: <AlarmClock aria-hidden="true" size={18} /> },
   { id: "voice", label: "nav.voice", icon: <PenLine aria-hidden="true" size={18} /> },
   { id: "settings", label: "nav.settings", icon: <Settings aria-hidden="true" size={18} /> },
 ];
 
-/** The current page lives in the URL hash so reloads and links keep it. */
-function pageFromHash(): PageId {
-  const id = window.location.hash.replace(/^#\/?/, "") as PageId;
-  return pageIds.includes(id) ? id : "today";
+/** The current page lives in the URL hash (#history/<id> opens one generation). */
+function routeFromHash(): { page: PageId; id: string | null } {
+  const [first, second] = window.location.hash.replace(/^#\/?/, "").split("/");
+  const page = pageIds.includes(first as PageId) ? (first as PageId) : "today";
+  return { page, id: page === "history" && second ? decodeURIComponent(second) : null };
 }
 
 function queryFlag(name: string): string | null {
@@ -32,7 +44,8 @@ function queryFlag(name: string): string | null {
 
 export function App() {
   const { t, lang, setLang } = useI18n();
-  const [page, setPageState] = useState<PageId>(pageFromHash);
+  const [route, setRoute] = useState(routeFromHash);
+  const page = route.page;
   const [health, setHealth] = useState<HealthReport | null>(null);
   const [me, setMe] = useState<MeReport | null>(null);
   const [repos, setRepos] = useState<RepoSummary[] | null>(null);
@@ -43,12 +56,12 @@ export function App() {
   const [billingResult] = useState(() => queryFlag("billing"));
 
   const setPage = useCallback((next: PageId) => {
-    setPageState(next);
+    setRoute({ page: next, id: null });
     if (window.location.hash !== `#${next}`) window.history.replaceState(null, "", `#${next}`);
   }, []);
 
   useEffect(() => {
-    const onHash = () => setPageState(pageFromHash());
+    const onHash = () => setRoute(routeFromHash());
     window.addEventListener("hashchange", onHash);
     // Drop one-off query flags (?login_error, ?billing) from the address bar.
     if (window.location.search) {
@@ -194,7 +207,12 @@ export function App() {
             {page === "today" ? (
               <TodayPage health={health} repos={repos} onGoToSettings={() => setPage("settings")} />
             ) : null}
-            {page === "history" ? <HistoryPage /> : null}
+            {page === "history" ? (
+              <HistoryPage openId={route.id} onClose={() => setPage("history")} />
+            ) : null}
+            {page === "schedule" ? (
+              <SchedulePage repos={repos} onUpgrade={() => setPage("settings")} />
+            ) : null}
             {page === "voice" ? <VoicePage health={health} usage={usage} /> : null}
             {page === "settings" ? (
               <SettingsPage

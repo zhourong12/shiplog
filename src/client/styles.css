@@ -353,6 +353,7 @@ main {
 
 .field {
   display: grid;
+  align-content: start;
   gap: 6px;
   margin: 0 0 14px;
   border: 0;
@@ -1438,4 +1439,81 @@ pre {
   .account-login {
     display: none;
   }
+}
+
+/* Schedule */
+
+.schedule-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+
+.schedule-fields:disabled {
+  opacity: 0.6;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-weight: 600;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: inherit;
+}
+
+.run-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.run .link {
+  margin: 0 0 0 auto;
+}
+
+.run-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.run-success {
+  color: var(--good);
+}
+
+.run-skipped {
+  color: var(--text-muted);
+}
+
+.run-failed {
+  color: var(--critical);
 }

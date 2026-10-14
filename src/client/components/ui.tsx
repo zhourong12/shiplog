@@ -182,11 +182,12 @@ export function formatNumber(value: number): string {
   return value.toLocaleString("en-US");
 }
 
-export function formatDateTime(iso: string, lang: "zh" | "en"): string {
+export function formatDateTime(iso: string, lang: "zh" | "en", timeZone?: string): string {
   return new Date(iso).toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone,
   });
 }

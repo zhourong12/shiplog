@@ -5,6 +5,8 @@ import express from "express";
 import { AnthropicLlm } from "./ai/llm.js";
 import { createApp } from "./app.js";
 import { StripeBilling } from "./billing/stripe.js";
+import { smtpMailer } from "./scheduler/notify.js";
+import { ScheduleService, SchedulerLoop } from "./scheduler/scheduler.js";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/database.js";
 import { ShipLogService } from "./services/shiplogService.js";
@@ -36,10 +38,16 @@ async function main() {
     config.stripe && config.authMode === "github"
       ? new StripeBilling(config.stripe, db, service.users, config.publicBaseUrl)
       : null;
+  const schedules = new ScheduleService({
+    service,
+    mailer: config.smtp ? smtpMailer(config.smtp) : null,
+  });
+  if (config.schedulerEnabled) new SchedulerLoop(schedules).start();
   const app = createApp({
     service,
     config,
     billing,
+    schedules,
     clientMiddleware: await clientMiddleware(config.isProduction),
   });
   app.listen(config.port, config.host, () => {

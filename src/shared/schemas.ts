@@ -225,6 +225,44 @@ export interface PlanLimits {
   maxRepos: number | null;
   aiRunsPerMonth: number | null;
   voiceLearning: boolean;
+  scheduling: boolean;
+}
+
+export const webhookKinds = ["generic", "slack", "discord", "feishu"] as const;
+export type WebhookKind = (typeof webhookKinds)[number];
+
+export interface ScheduleSettings {
+  enabled: boolean;
+  repoId: number | null;
+  /** HH:MM in `timezone`. */
+  time: string;
+  timezone: string;
+  platforms: PlatformId[];
+  windowHours: number;
+  skipEmpty: boolean;
+  notifyEmail: string | null;
+  webhookKind: WebhookKind | null;
+  /** The URL is a secret (anyone holding it can post); only whether one is saved is exposed. */
+  webhookConfigured: boolean;
+}
+
+export interface ScheduleRun {
+  id: number;
+  trigger: "schedule" | "manual";
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "success" | "skipped" | "failed";
+  generationId: string | null;
+  message: string | null;
+  notified: string[];
+}
+
+export interface ScheduleReport {
+  settings: ScheduleSettings;
+  runs: ScheduleRun[];
+  nextRunAt: string | null;
+  emailEnabled: boolean;
+  allowed: boolean;
 }
 
 export interface UsageReport {

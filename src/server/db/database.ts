@@ -156,6 +156,38 @@ export const migrations: Array<{ version: number; name: string; sql: string }> =
       );
     `,
   },
+  {
+    version: 4,
+    name: "daily schedule and run log",
+    sql: `
+      CREATE TABLE schedules (
+        user_id INTEGER PRIMARY KEY,
+        enabled INTEGER NOT NULL DEFAULT 0,
+        repo_id INTEGER,
+        time_local TEXT NOT NULL DEFAULT '21:00',
+        timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+        platforms_json TEXT NOT NULL DEFAULT '["jike","x","changelog"]',
+        window_hours INTEGER NOT NULL DEFAULT 24,
+        skip_empty INTEGER NOT NULL DEFAULT 1,
+        notify_email TEXT,
+        webhook_kind TEXT,
+        last_run_day TEXT,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE schedule_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        trigger TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        status TEXT NOT NULL,
+        generation_id TEXT,
+        message TEXT,
+        notified TEXT
+      );
+      CREATE INDEX schedule_runs_user ON schedule_runs (user_id, started_at DESC);
+    `,
+  },
 ];
 
 export function migrate(db: Db): number[] {
