@@ -188,6 +188,26 @@ export const migrations: Array<{ version: number; name: string; sql: string }> =
       CREATE INDEX schedule_runs_user ON schedule_runs (user_id, started_at DESC);
     `,
   },
+  {
+    version: 5,
+    name: "post metrics",
+    sql: `
+      CREATE TABLE post_metrics (
+        user_id INTEGER NOT NULL,
+        generation_id TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        post_url TEXT,
+        views INTEGER,
+        likes INTEGER NOT NULL DEFAULT 0,
+        comments INTEGER NOT NULL DEFAULT 0,
+        reposts INTEGER NOT NULL DEFAULT 0,
+        saves INTEGER NOT NULL DEFAULT 0,
+        recorded_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, generation_id, platform)
+      );
+      CREATE INDEX post_metrics_recent ON post_metrics (user_id, recorded_at DESC);
+    `,
+  },
 ];
 
 export function migrate(db: Db): number[] {

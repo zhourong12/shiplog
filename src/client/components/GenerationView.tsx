@@ -1,4 +1,5 @@
 import {
+  BookOpenCheck,
   Bot,
   CheckCircle2,
   FileText,
@@ -9,11 +10,18 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
-import type { ChangeStory, Draft, GenerationResult, PlatformId } from "../../shared/schemas";
+import type {
+  ChangeStory,
+  Draft,
+  GenerationResult,
+  PlatformId,
+  PostMetrics,
+} from "../../shared/schemas";
 import { api, localDay } from "../api";
 import { useI18n, type TranslationKey } from "../i18n";
 import { CardsPanel } from "./CardsPanel";
 import { DraftEditor } from "./DraftEditor";
+import { PostMetricsPanel } from "./PostMetricsPanel";
 import { Badge, CopyButton, ErrorNotice, Notice, formatDateTime, formatNumber } from "./ui";
 
 function StoryCard({ story, result }: { story: ChangeStory; result: GenerationResult }) {
@@ -65,16 +73,22 @@ function StoryCard({ story, result }: { story: ChangeStory; result: GenerationRe
   );
 }
 
+type MetricsByPlatform = Partial<Record<PlatformId, PostMetrics>>;
+
 function DraftTabs({
   result,
   sharedPlatforms,
+  metrics,
   onDraftSaved,
   onShared,
+  onMetrics,
 }: {
   result: GenerationResult;
   sharedPlatforms: PlatformId[];
+  metrics: MetricsByPlatform;
   onDraftSaved: (draft: Draft) => void;
   onShared: (platform: PlatformId) => void;
+  onMetrics: (platform: PlatformId, metrics: PostMetrics | null) => void;
 }) {
   const { t } = useI18n();
   const [active, setActive] = useState<PlatformId>(result.drafts[0]?.platform ?? "jike");
@@ -145,6 +159,15 @@ function DraftTabs({
             }
           }}
         />
+        {sharedPlatforms.includes(current.platform) || metrics[current.platform] ? (
+          <PostMetricsPanel
+            key={`metrics-${current.platform}`}
+            generationId={result.id}
+            platform={current.platform}
+            metrics={metrics[current.platform] ?? null}
+            onChanged={(next) => onMetrics(current.platform, next)}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -153,15 +176,18 @@ function DraftTabs({
 export function GenerationView({
   initial,
   initialShared = [],
+  initialMetrics = {},
   onShared,
 }: {
   initial: GenerationResult;
   initialShared?: PlatformId[];
+  initialMetrics?: MetricsByPlatform;
   onShared?: () => void;
 }) {
   const { t, lang } = useI18n();
   const [result, setResult] = useState(initial);
   const [sharedPlatforms, setSharedPlatforms] = useState<PlatformId[]>(initialShared);
+  const [metrics, setMetrics] = useState<MetricsByPlatform>(initialMetrics);
   const cost = result.usage.reduce((sum, item) => sum + (item.costUsd ?? 0), 0);
 
   return (
@@ -234,6 +260,12 @@ export function GenerationView({
               {t("result.truncated")}
             </li>
           ) : null}
+          {result.exemplarCount ? (
+            <li>
+              <BookOpenCheck aria-hidden="true" size={16} />
+              {t("result.exemplars", { n: result.exemplarCount })}
+            </li>
+          ) : null}
           {result.usage.length > 0 ? (
             <li>
               <Sparkles aria-hidden="true" size={16} />
@@ -275,10 +307,19 @@ export function GenerationView({
                 ),
               }))
             }
+            metrics={metrics}
             onShared={(platform) => {
               setSharedPlatforms((previous) => [...new Set([...previous, platform])]);
               onShared?.();
             }}
+            onMetrics={(platform, next) =>
+              setMetrics((previous) => {
+                const updated = { ...previous };
+                if (next) updated[platform] = next;
+                else delete updated[platform];
+                return updated;
+              })
+            }
           />
         </section>
       ) : null}

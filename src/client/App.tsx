@@ -208,7 +208,11 @@ export function App() {
               <TodayPage health={health} repos={repos} onGoToSettings={() => setPage("settings")} />
             ) : null}
             {page === "history" ? (
-              <HistoryPage openId={route.id} onClose={() => setPage("history")} />
+              <HistoryPage
+                openId={route.id}
+                onClose={() => setPage("history")}
+                onUpgrade={() => setPage("settings")}
+              />
             ) : null}
             {page === "schedule" ? (
               <SchedulePage repos={repos} onUpgrade={() => setPage("settings")} />

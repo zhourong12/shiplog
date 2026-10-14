@@ -4,9 +4,11 @@ import type {
   Collection,
   GenerationResult,
   PlatformId,
+  StoryKind,
   UsageSummary,
   VoiceProfile,
 } from "../shared/schemas.js";
+import type { Exemplar } from "./engagement/engagement.js";
 import { pickSnippet } from "./cards/codeCard.js";
 import { understandCommits } from "./ai/understand.js";
 import { AiError, type StructuredLlm } from "./ai/llm.js";
@@ -27,6 +29,8 @@ export interface PipelineInput {
   repoId: number | null;
   /** Recent commit activity (oldest first) and the current streak, when the caller has them. */
   activity?: { recent: ActivityDay[]; commitStreak: number };
+  /** The author's best-performing past posts and story kinds, when their plan allows learning. */
+  learning?: { exemplars: Exemplar[]; favoredKinds: StoryKind[] };
   now?: Date;
 }
 
@@ -135,6 +139,8 @@ async function runAiSteps(
     context,
     repoLabel: collection.repoLabel,
     productContext: input.productContext,
+    exemplars: input.learning?.exemplars,
+    favoredKinds: input.learning?.favoredKinds,
   });
   usage.push(...written.usage);
 
@@ -145,6 +151,7 @@ async function runAiSteps(
     stories: understood.stories,
     drafts: written.drafts,
     usage,
+    exemplarCount: input.learning?.exemplars.length ?? 0,
   };
 }
 

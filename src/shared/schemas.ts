@@ -206,6 +206,8 @@ export interface GenerationResult {
   /** Numbers drafts may cite; kept so edited drafts can be re-checked later. */
   claimNumbers: string[];
   usage: UsageSummary[];
+  /** How many of the author's best-performing past posts the writer was shown. */
+  exemplarCount?: number;
 }
 
 export interface CodeSnippet {
@@ -366,4 +368,56 @@ export interface VoiceState {
   source: "default" | "learned" | "manual";
   samplesCount: number;
   updatedAt: string | null;
+}
+
+/** What a published post earned, entered by the author after posting. */
+export interface PostMetrics {
+  postUrl: string | null;
+  /** Not every platform shows views, so this one is optional. */
+  views: number | null;
+  likes: number;
+  comments: number;
+  reposts: number;
+  saves: number;
+  recordedAt: string;
+  /** likes + 2×comments + 3×reposts + 2×saves; only comparable within one platform. */
+  score: number;
+}
+
+export type PostMetricsInput = Omit<PostMetrics, "recordedAt" | "score">;
+
+export interface PostPerformance {
+  generationId: string;
+  repoLabel: string;
+  platform: PlatformId;
+  createdAt: string;
+  headline: string;
+  excerpt: string;
+  kinds: StoryKind[];
+  metrics: PostMetrics;
+  /** Score relative to the author's average on the same platform; null with too few posts. */
+  lift: number | null;
+}
+
+export interface InsightsReport {
+  tracked: number;
+  totals: { views: number; likes: number; comments: number; reposts: number; saves: number };
+  platforms: Array<{ platform: PlatformId; posts: number; avgScore: number; bestScore: number }>;
+  /** Story kinds ranked by how they did against each platform's average. */
+  kinds: Array<{ kind: StoryKind; posts: number; avgLift: number }>;
+  top: PostPerformance[];
+  /** Shared drafts with no numbers yet, newest first. */
+  pending: Array<{
+    generationId: string;
+    platform: PlatformId;
+    repoLabel: string;
+    headline: string;
+    sharedDay: string;
+  }>;
+  learning: {
+    /** The plan lets the writer learn from past posts. */
+    allowed: boolean;
+    /** Posts the writer would be shown right now. */
+    exemplars: number;
+  };
 }

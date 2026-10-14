@@ -8,9 +8,11 @@ import {
   type Draft,
   type Milestone,
   type PlatformId,
+  type StoryKind,
   type VoiceProfile,
 } from "../../shared/schemas.js";
 import { platformSpecs } from "../../shared/platformRules.js";
+import type { Exemplar } from "../engagement/engagement.js";
 
 export const UnderstandOutputSchema = z.object({
   dayHeadline: z.string(),
@@ -61,6 +63,8 @@ export const writeSystemPrompt = `你是 ShipLog 的写作助手，帮独立开�
 - 引用代码、命令、文件名、配置值或界面文字时，必须与输入原文一字不差，并用反引号包起来；拿不准就不要引用。
 - 不要为了生动而改动细节：没写在输入里的现象、数量、感受和过程都不要补充。
 - 按 <voice> 中作者的风格写，避免营销腔和空话。
+- <top_posts>（如果有）是作者过去互动最好的帖子，只参考它们的开头、结构、长度和节奏；不要照搬其中的事实、数字或句子，它们讲的是别的日子。
+- <audience>（如果有）列出过往数据里读者更感兴趣的故事类型；同等条件下优先讲这类故事，但不要为此歪曲事实。
 - 每份草稿在 factIds 中列出用到的事实 ID。
 - hashtags 只写标签文字，不带 # 号。
 - 每个请求的平台都要输出一份草稿。如果这段时间没有值得讲的内容，就写一份简短、如实的近况，不要硬凑。
@@ -165,6 +169,8 @@ export function buildWritePrompt(input: {
   milestones: Milestone[];
   repoLabel: string;
   productContext: string | null;
+  exemplars?: Exemplar[];
+  favoredKinds?: StoryKind[];
 }): string {
   const stories = input.stories.map((story) => ({
     id: story.id,
@@ -179,13 +185,28 @@ export function buildWritePrompt(input: {
   return [
     `<project>名称：${neutralize(input.repoLabel)}；一句话介绍：${input.productContext ? neutralize(input.productContext) : "（未提供）"}</project>`,
     `<voice>${JSON.stringify(input.voice)}</voice>`,
+    input.exemplars?.length
+      ? `<top_posts>${neutralize(
+          JSON.stringify(
+            input.exemplars.map((post) => ({
+              platform: post.platform,
+              title: post.title,
+              body: post.body,
+              engagement: `赞 ${post.metrics.likes} · 评论 ${post.metrics.comments} · 转发 ${post.metrics.reposts} · 收藏 ${post.metrics.saves}`,
+            })),
+          ),
+        )}</top_posts>`
+      : "",
+    input.favoredKinds?.length ? `<audience>${input.favoredKinds.join(", ")}</audience>` : "",
     `<day_headline>${neutralize(input.dayHeadline ?? "")}</day_headline>`,
     `<milestones>${input.milestones.map((m) => m.label).join("、") || "无"}</milestones>`,
     `<stories>${neutralize(JSON.stringify(stories))}</stories>`,
     `<allowed_numbers>${input.allowedNumbers.join(", ")}</allowed_numbers>`,
     `<platforms>${input.platforms.join(", ")}</platforms>`,
     "请为 <platforms> 中的每个平台各写一份草稿。",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export function buildRepairPrompt(basePrompt: string, failing: Draft[]): string {

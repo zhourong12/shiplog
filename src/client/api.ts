@@ -5,8 +5,11 @@ import type {
   GenerationSummary,
   GithubRepoOption,
   HealthReport,
+  InsightsReport,
   MeReport,
   PlatformId,
+  PostMetrics,
+  PostMetricsInput,
   PreviewReport,
   RepoSummary,
   ScheduleReport,
@@ -18,6 +21,11 @@ import type {
 } from "../shared/schemas";
 
 const TOKEN_KEY = "shiplog-app-token";
+
+export type GenerationDetail = GenerationResult & {
+  sharedPlatforms: PlatformId[];
+  metrics: Partial<Record<PlatformId, PostMetrics>>;
+};
 
 export function getAppToken(): string {
   try {
@@ -139,8 +147,7 @@ export const api = {
       "GET",
       repoId === undefined ? "/api/generations" : `/api/generations?repoId=${repoId}`,
     ),
-  generation: (id: string) =>
-    call<GenerationResult & { sharedPlatforms: PlatformId[] }>("GET", `/api/generations/${id}`),
+  generation: (id: string) => call<GenerationDetail>("GET", `/api/generations/${id}`),
   editDraft: (
     id: string,
     platform: PlatformId,
@@ -148,6 +155,11 @@ export const api = {
   ) => call<Draft>("PATCH", `/api/generations/${id}/drafts/${platform}`, patch),
   share: (id: string, platform: PlatformId, day: string) =>
     call<void>("POST", `/api/generations/${id}/share`, { platform, day }),
+  saveMetrics: (id: string, platform: PlatformId, input: PostMetricsInput) =>
+    call<PostMetrics>("PUT", `/api/generations/${id}/drafts/${platform}/metrics`, input),
+  deleteMetrics: (id: string, platform: PlatformId) =>
+    call<void>("DELETE", `/api/generations/${id}/drafts/${platform}/metrics`),
+  insights: () => call<InsightsReport>("GET", "/api/insights"),
   githubCredential: () =>
     call<{ configured: boolean; hint: string | null; updatedAt: string | null }>(
       "GET",

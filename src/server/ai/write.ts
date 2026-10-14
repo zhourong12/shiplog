@@ -3,9 +3,11 @@ import type {
   Draft,
   Milestone,
   PlatformId,
+  StoryKind,
   UsageSummary,
   VoiceProfile,
 } from "../../shared/schemas.js";
+import type { Exemplar } from "../engagement/engagement.js";
 import type { ClaimContext } from "../guards/claimGuard.js";
 import { guardDraft, hasErrors } from "../guards/index.js";
 import { AiError, type StructuredLlm } from "./llm.js";
@@ -63,6 +65,8 @@ export async function writeDrafts(input: {
   context: ClaimContext;
   repoLabel: string;
   productContext: string | null;
+  exemplars?: Exemplar[];
+  favoredKinds?: StoryKind[];
 }): Promise<WriteResult> {
   const prompt = buildWritePrompt({
     stories: input.stories,
@@ -73,6 +77,8 @@ export async function writeDrafts(input: {
     milestones: input.milestones,
     repoLabel: input.repoLabel,
     productContext: input.productContext,
+    exemplars: input.exemplars,
+    favoredKinds: input.favoredKinds,
   });
   const usage: UsageSummary[] = [];
   const first = await input.llm.generate({

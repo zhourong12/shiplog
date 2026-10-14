@@ -35,6 +35,25 @@ const draftPatchSchema = z.object({
   hashtags: z.array(z.string().max(60)).max(20),
 });
 
+const count = z.number().int().min(0).max(1_000_000_000);
+
+const metricsSchema = z.object({
+  postUrl: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((value) => value === "" || /^https?:\/\/[^\s]+$/i.test(value), {
+      message: "帖子链接需要以 http:// 或 https:// 开头。",
+    })
+    .nullish()
+    .transform((value) => value || null),
+  views: count.nullish().transform((value) => value ?? null),
+  likes: count,
+  comments: count,
+  reposts: count,
+  saves: count.default(0),
+});
+
 /** Repositories, generations, drafts and share cards. Everything is scoped to the signed-in user. */
 export function workspaceRoutes(service: ShipLogService): express.Router {
   const router = express.Router();
@@ -122,7 +141,31 @@ export function workspaceRoutes(service: ShipLogService): express.Router {
     const user = currentUser(res);
     const result = service.getGeneration(user, String(req.params.gid));
     const shared = service.generations.sharedPlatformsFor(user.id, [result.id]).get(result.id);
-    res.json({ data: { ...result, sharedPlatforms: shared ?? [] } });
+    res.json({
+      data: {
+        ...result,
+        sharedPlatforms: shared ?? [],
+        metrics: service.metrics.forGeneration(user.id, result.id),
+      },
+    });
+  });
+
+  router.put("/api/generations/:gid/drafts/:platform/metrics", (req, res) => {
+    const platform = parseBody(PlatformIdSchema, req.params.platform);
+    const body = parseBody(metricsSchema, req.body);
+    res.json({
+      data: service.recordMetrics(currentUser(res), String(req.params.gid), platform, body),
+    });
+  });
+
+  router.delete("/api/generations/:gid/drafts/:platform/metrics", (req, res) => {
+    const platform = parseBody(PlatformIdSchema, req.params.platform);
+    service.deleteMetrics(currentUser(res), String(req.params.gid), platform);
+    res.status(204).end();
+  });
+
+  router.get("/api/insights", (_req, res) => {
+    res.json({ data: service.insights(currentUser(res)) });
   });
 
   router.patch("/api/generations/:gid/drafts/:platform", (req, res) => {

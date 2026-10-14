@@ -6,9 +6,12 @@ import type {
   Draft,
   GenerationResult,
   GithubRepoOption,
+  InsightsReport,
   MeReport,
   Plan,
   PlatformId,
+  PostMetrics,
+  PostMetricsInput,
   PreviewReport,
   RepoSummary,
   UsageReport,
@@ -34,6 +37,14 @@ import {
   monthOf,
   type UserRecord,
 } from "../db/stores.js";
+import {
+  MetricsStore,
+  buildInsights,
+  buildPerformances,
+  favoredKinds,
+  pickExemplars,
+  type TrackedPost,
+} from "../engagement/engagement.js";
 import { guardDraft } from "../guards/index.js";
 import { buildActivity, currentStreak, detectMilestones, longestStreak } from "../insights.js";
 import { runPipeline } from "../pipeline.js";
@@ -83,6 +94,7 @@ export class ShipLogService {
   readonly generations: GenerationStore;
   readonly usage: UsageStore;
   readonly voice: VoiceStore;
+  readonly metrics: MetricsStore;
   readonly credentials: CredentialStore;
   readonly now: () => Date;
 
@@ -93,6 +105,7 @@ export class ShipLogService {
     this.generations = new GenerationStore(deps.db);
     this.usage = new UsageStore(deps.db);
     this.voice = new VoiceStore(deps.db);
+    this.metrics = new MetricsStore(deps.db);
     this.credentials = new CredentialStore(deps.db, () =>
       resolveEncryptionKey(process.env, deps.config.keyFilePath),
     );
@@ -451,6 +464,7 @@ export class ShipLogService {
     if (skipIfEmpty && collection.commits.length === 0) return null;
     const activity = await this.activity(user, repoId, today, 14).catch(() => null);
     const { llm, reason } = this.aiAvailability(user);
+    const learning = llm && this.limits(user).voiceLearning ? this.learning(user, platforms) : null;
 
     const result = await runPipeline({
       collection,
@@ -463,6 +477,7 @@ export class ShipLogService {
       activity: activity
         ? { recent: activity.days, commitStreak: activity.commitStreak }
         : undefined,
+      learning: learning ?? undefined,
       now: this.now(),
     });
     this.generations.save(user.id, result);
@@ -519,6 +534,67 @@ export class ShipLogService {
   share(user: CurrentUser, id: string, platform: PlatformId, day: string): void {
     const result = this.getGeneration(user, id);
     this.generations.recordShare(user.id, id, result.repoId, platform, day);
+  }
+
+  // ----------------------------------------------------------- engagement
+
+  recordMetrics(
+    user: CurrentUser,
+    id: string,
+    platform: PlatformId,
+    input: PostMetricsInput,
+  ): PostMetrics {
+    const result = this.getGeneration(user, id);
+    if (!result.drafts.some((draft) => draft.platform === platform)) {
+      throw new HttpError(404, "draft_not_found", "这次生成没有该平台的草稿。");
+    }
+    return this.metrics.save(user.id, id, platform, input, this.now());
+  }
+
+  deleteMetrics(user: CurrentUser, id: string, platform: PlatformId): void {
+    this.getGeneration(user, id);
+    this.metrics.delete(user.id, id, platform);
+  }
+
+  /** Posts with reported numbers, joined to the draft text that was published. */
+  private trackedPosts(userId: number): TrackedPost[] {
+    const cache = new Map<string, GenerationResult | null>();
+    const posts: TrackedPost[] = [];
+    for (const item of this.metrics.recent(userId)) {
+      if (!cache.has(item.generationId)) {
+        cache.set(item.generationId, this.generations.get(userId, item.generationId));
+      }
+      const result = cache.get(item.generationId);
+      const draft = result?.drafts.find((candidate) => candidate.platform === item.platform);
+      if (result && draft) posts.push({ result, draft, metrics: item.metrics });
+    }
+    return posts;
+  }
+
+  /** What the writer learns from: the best past posts on these platforms and the kinds readers like. */
+  learning(user: CurrentUser, platforms: PlatformId[]) {
+    const posts = this.trackedPosts(user.id);
+    return {
+      exemplars: pickExemplars(posts, platforms),
+      favoredKinds: favoredKinds(buildPerformances(posts)),
+    };
+  }
+
+  insights(user: CurrentUser): InsightsReport {
+    const posts = this.trackedPosts(user.id);
+    const pending = this.metrics.pendingShares(user.id).flatMap((item) => {
+      const result = this.generations.get(user.id, item.generationId);
+      return result
+        ? [
+            {
+              ...item,
+              repoLabel: result.repoLabel,
+              headline: result.dayHeadline ?? result.repoLabel,
+            },
+          ]
+        : [];
+    });
+    return buildInsights({ posts, pending, allowed: this.limits(user).voiceLearning });
   }
 
   async learnVoice(user: CurrentUser, samplesText: string): Promise<VoiceState> {

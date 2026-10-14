@@ -77,8 +77,11 @@ const usage = {
 class ScriptedLlm implements StructuredLlm {
   readonly model = "fake";
   calls: string[] = [];
+  /** The last user prompt for each step. */
+  prompts: Record<string, string> = {};
   async generate<T>(request: StructuredRequest<T>) {
     this.calls.push(request.label);
+    this.prompts[request.label] = request.user;
     const sha = /sha="([0-9a-f]{40})"/.exec(request.user)?.[1] ?? "";
     const outputs: Record<string, unknown> = {
       understand: {
@@ -359,6 +362,69 @@ describe("API", () => {
       .send({ profile: { ...learned.body.data.profile, tone: "认真" } })
       .expect(200);
     expect(manual.body.data).toMatchObject({ source: "manual", profile: { tone: "认真" } });
+  });
+
+  it("records post metrics, reports insights and feeds the best posts back to the writer", async () => {
+    const pro = setup({ plan: "pro" });
+    const repo = await request(pro.app)
+      .post("/api/repos")
+      .send({ kind: "local", localPath: repoPath })
+      .expect(201);
+    const generate = () =>
+      request(pro.app)
+        .post(`/api/repos/${repo.body.data.id}/generate`)
+        .send({ ...windowBody(), platforms: ["jike"] })
+        .expect(200);
+    const first = await generate();
+    expect(first.body.data.exemplarCount).toBe(0);
+    expect(pro.llm.prompts.write).not.toContain("<top_posts>");
+    const id = first.body.data.id as string;
+
+    await request(pro.app)
+      .post(`/api/generations/${id}/share`)
+      .send({ platform: "jike" })
+      .expect(204);
+    const before = await request(pro.app).get("/api/insights").expect(200);
+    expect(before.body.data).toMatchObject({ tracked: 0, pending: [{ generationId: id }] });
+
+    await request(pro.app)
+      .put(`/api/generations/${id}/drafts/jike/metrics`)
+      .send({ postUrl: "javascript:alert(1)", likes: 1, comments: 0, reposts: 0 })
+      .expect(400);
+    await request(pro.app)
+      .put(`/api/generations/${id}/drafts/xiaohongshu/metrics`)
+      .send({ likes: 1, comments: 0, reposts: 0 })
+      .expect(404);
+    const saved = await request(pro.app)
+      .put(`/api/generations/${id}/drafts/jike/metrics`)
+      .send({ postUrl: "https://m.okjike.com/originalPosts/1", likes: 30, comments: 6, reposts: 2 })
+      .expect(200);
+    expect(saved.body.data).toMatchObject({ likes: 30, saves: 0, views: null, score: 48 });
+
+    const opened = await request(pro.app).get(`/api/generations/${id}`).expect(200);
+    expect(opened.body.data.metrics.jike).toMatchObject({ likes: 30, score: 48 });
+    const insights = await request(pro.app).get("/api/insights").expect(200);
+    expect(insights.body.data).toMatchObject({
+      tracked: 1,
+      totals: { likes: 30, comments: 6, reposts: 2 },
+      platforms: [{ platform: "jike", posts: 1, bestScore: 48 }],
+      top: [{ generationId: id, kinds: ["fix"] }],
+      pending: [],
+      learning: { allowed: true, exemplars: 1 },
+    });
+
+    const second = await generate();
+    expect(second.body.data.exemplarCount).toBe(1);
+    expect(pro.llm.prompts.write).toContain("<top_posts>");
+    expect(pro.llm.prompts.write).toContain("赞 30");
+
+    // Free plans see their numbers but the writer does not learn from them.
+    const free = await request(ctx.app).get("/api/insights").expect(200);
+    expect(free.body.data.learning).toEqual({ allowed: false, exemplars: 0 });
+
+    await request(pro.app).delete(`/api/generations/${id}/drafts/jike/metrics`).expect(204);
+    const cleared = await request(pro.app).get("/api/insights").expect(200);
+    expect(cleared.body.data.tracked).toBe(0);
   });
 });
 
