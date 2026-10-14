@@ -34,6 +34,11 @@ export function extractNumbers(text: string): string[] {
 export interface ClaimContext {
   numbers: Set<string>;
   factIds: Set<string>;
+  /**
+   * Commit messages, changed lines, paths, tags and SHAs. Quoted code in a draft must appear
+   * here verbatim. Absent when re-checking a hand-edited draft, where the sources are gone.
+   */
+  sourceText?: string;
 }
 
 /** Collect every number a draft is allowed to use: from commits, diffs, tags and git statistics. */
@@ -53,6 +58,14 @@ export function buildClaimContext(
     }
   }
   for (const tag of collection.tags) corpus.push(tag.name);
+  const sourceText = [
+    ...corpus,
+    ...collection.commits.flatMap((commit) => [
+      commit.sha,
+      commit.shortSha,
+      ...commit.files.map((file) => file.path),
+    ]),
+  ].join("\n");
   // Story facts are model output, so they never count as evidence for numbers.
   for (const milestone of milestones) corpus.push(milestone.value, milestone.label);
 
@@ -86,7 +99,48 @@ export function buildClaimContext(
   return {
     numbers,
     factIds: new Set(stories.flatMap((story) => story.facts.map((fact) => fact.id))),
+    sourceText,
   };
+}
+
+/** ASCII text with code punctuation, camelCase or CONSTANT_CASE reads as code, not prose. */
+function looksLikeCode(literal: string): boolean {
+  if (!/^[\x20-\x7e]+$/.test(literal) || literal.trim().length < 3) return false;
+  return (
+    /[_./=:()[\]{}<>-]/.test(literal) ||
+    /[a-z][A-Z]/.test(literal) ||
+    /^[A-Z][A-Z0-9_]{2,}$/.test(literal)
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Code the draft quotes in backticks or straight double quotes that does not appear verbatim
+ * in the sources. A quoted string must match a whole quoted string ("app-token" is not
+ * supported by "shiplog-app-token"); a backtick span must match on word boundaries.
+ */
+export function misquotedLiterals(text: string, sourceText: string): string[] {
+  const missing = new Set<string>();
+  for (const match of text.matchAll(/`([^`\n]{1,120})`/g)) {
+    const literal = match[1]!.trim();
+    if (!looksLikeCode(literal)) continue;
+    // `name()` is how posts refer to a function; the source has `name(args)`.
+    const call = /^([\w.$]+)\(\)$/.exec(literal);
+    const bounded = call
+      ? new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(call[1]!)}\\(`)
+      : new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(literal)}($|[^A-Za-z0-9_])`);
+    if (!bounded.test(sourceText)) missing.add(literal);
+  }
+  for (const match of text.matchAll(/"([^"\n]{1,120})"/g)) {
+    const literal = match[1]!;
+    if (!looksLikeCode(literal)) continue;
+    const quoted = [`"${literal}"`, `'${literal}'`, `\`${literal}\``];
+    if (!quoted.some((form) => sourceText.includes(form))) missing.add(literal);
+  }
+  return [...missing];
 }
 
 /** Numbers this small are everyday wording ("一两个"、"2 个坑"), not checkable claims. */
@@ -105,6 +159,16 @@ export function checkClaims(
       severity: "error",
       message: `这些数字在提交记录里找不到依据：${[...unsupported].join("、")}。请删除或改成有依据的数字。`,
     });
+  }
+  if (context.sourceText !== undefined) {
+    const misquoted = misquotedLiterals(text, context.sourceText);
+    if (misquoted.length > 0) {
+      issues.push({
+        code: "misquoted_code",
+        severity: "error",
+        message: `引用的代码与提交原文不一致：${misquoted.map((item) => `“${item}”`).join("、")}。请照原文引用或删掉引号。`,
+      });
+    }
   }
   if (containsSecret(text)) {
     issues.push({

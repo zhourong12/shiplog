@@ -114,6 +114,7 @@ export type GuardIssueCode =
   | "too_many_parts"
   | "too_many_hashtags"
   | "unsupported_number"
+  | "misquoted_code"
   | "secret_detected"
   | "unknown_fact"
   | "no_facts"

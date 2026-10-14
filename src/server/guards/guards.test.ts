@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChangeStory, Collection } from "../../shared/schemas.js";
-import { buildClaimContext, checkClaims, extractNumbers } from "./claimGuard.js";
+import { buildClaimContext, checkClaims, extractNumbers, misquotedLiterals } from "./claimGuard.js";
 import { guardDraft } from "./index.js";
 import {
   checkPlatformRules,
@@ -178,6 +178,36 @@ describe("claim guard", () => {
       context,
     );
     expect(noFacts.map((issue) => issue.code)).toEqual(["no_facts"]);
+  });
+
+  it("flags quoted code that does not match the commits verbatim", () => {
+    const source = [
+      'const TOKEN_KEY = "shiplog-app-token";',
+      "export function filterPatch(diff: string) {}",
+      "src/server/app.ts",
+    ].join("\n");
+    expect(misquotedLiterals('把 TOKEN_KEY = "app-token" 也打了码', source)).toEqual(["app-token"]);
+    expect(misquotedLiterals('TOKEN_KEY = "shiplog-app-token" 没问题', source)).toEqual([]);
+    expect(misquotedLiterals("改了 `filterPatch()` 和 `src/server/app.ts`", source)).toEqual([]);
+    expect(misquotedLiterals("新增 `filterPatches()`", source)).toEqual(["filterPatches()"]);
+    // Prose in quotes or backticks is not code and is not checked.
+    expect(misquotedLiterals('我把它叫做 "Ship daily"，用 `最简单` 的办法', source)).toEqual([]);
+  });
+
+  it("reports misquoted code only when sources are available", () => {
+    const draft = {
+      platform: "jike" as const,
+      title: null,
+      body: "超时改成了 `TIMEOUT = 9000`",
+      hashtags: [],
+      factIds: ["f1"],
+    };
+    expect(checkClaims(draft, context).map((issue) => issue.code)).toEqual([
+      "unsupported_number",
+      "misquoted_code",
+    ]);
+    const edited = checkClaims(draft, { ...context, sourceText: undefined });
+    expect(edited.map((issue) => issue.code)).toEqual(["unsupported_number"]);
   });
 
   it("guardDraft marks drafts with errors as needs_review", () => {
