@@ -145,6 +145,17 @@ export const migrations: Array<{ version: number; name: string; sql: string }> =
       DROP TABLE voice_profile;
     `,
   },
+  {
+    version: 3,
+    name: "billing: processed Stripe events",
+    sql: `
+      CREATE TABLE stripe_events (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        received_at TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function migrate(db: Db): number[] {

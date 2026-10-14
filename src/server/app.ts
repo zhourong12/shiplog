@@ -2,10 +2,12 @@ import { timingSafeEqual } from "node:crypto";
 import express, { type NextFunction, type Request, type Response } from "express";
 import type { HealthReport } from "../shared/schemas.js";
 import { SESSION_COOKIE, parseCookies } from "./auth/cookies.js";
+import type { StripeBilling } from "./billing/stripe.js";
 import type { AppConfig } from "./config.js";
 import { SecretKeyError } from "./db/secrets.js";
 import { accountRoutes } from "./routes/account.js";
 import { authRoutes } from "./routes/auth.js";
+import { billingRoutes, billingWebhookRoutes } from "./routes/billing.js";
 import { workspaceRoutes } from "./routes/workspace.js";
 import { HttpError } from "./services/errors.js";
 import { toHttpError, type CurrentUser, type ShipLogService } from "./services/shiplogService.js";
@@ -15,6 +17,8 @@ export const APP_VERSION = "0.2.0";
 export interface AppOptions {
   service: ShipLogService;
   config: AppConfig;
+  /** Stripe billing; null when payments are not configured. */
+  billing?: StripeBilling | null;
   /** Routers mounted before the JSON body parser (they need the raw body, e.g. webhooks). */
   rawRoutes?: express.Router[];
   /** Extra authenticated API routers (billing, schedules…). */
@@ -50,6 +54,7 @@ function resolveUser(service: ShipLogService, req: Request): CurrentUser | null 
 export function createApp({
   service,
   config,
+  billing = null,
   rawRoutes = [],
   apiRoutes = [],
   clientMiddleware = [],
@@ -77,6 +82,7 @@ export function createApp({
     next();
   });
 
+  app.use(billingWebhookRoutes(service, billing));
   for (const router of rawRoutes) app.use(router);
   app.use("/api", express.json({ limit: "256kb" }));
 
@@ -122,6 +128,7 @@ export function createApp({
 
   app.use(workspaceRoutes(service));
   app.use(accountRoutes(service));
+  app.use(billingRoutes(service, billing));
   for (const router of apiRoutes) app.use(router);
 
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "not_found", "接口不存在。")));

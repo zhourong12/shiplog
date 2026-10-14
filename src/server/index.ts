@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import express from "express";
 import { AnthropicLlm } from "./ai/llm.js";
 import { createApp } from "./app.js";
+import { StripeBilling } from "./billing/stripe.js";
 import { loadConfig } from "./config.js";
 import { openDatabase } from "./db/database.js";
 import { ShipLogService } from "./services/shiplogService.js";
@@ -30,9 +31,15 @@ async function main() {
     config,
     llmFactory: () => (config.aiConfigured ? new AnthropicLlm({ model: config.model }) : null),
   });
+  // Billing needs accounts: it is only enabled with GitHub sign-in.
+  const billing =
+    config.stripe && config.authMode === "github"
+      ? new StripeBilling(config.stripe, db, service.users, config.publicBaseUrl)
+      : null;
   const app = createApp({
     service,
     config,
+    billing,
     clientMiddleware: await clientMiddleware(config.isProduction),
   });
   app.listen(config.port, config.host, () => {
