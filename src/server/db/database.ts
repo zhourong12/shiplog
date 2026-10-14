@@ -80,6 +80,71 @@ export const migrations: Array<{ version: number; name: string; sql: string }> =
       CREATE INDEX usage_events_month ON usage_events (month);
     `,
   },
+  {
+    version: 2,
+    name: "accounts: users, sessions and per-user data",
+    sql: `
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        github_id INTEGER UNIQUE,
+        login TEXT NOT NULL,
+        name TEXT,
+        avatar_url TEXT,
+        email TEXT,
+        plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
+        stripe_customer_id TEXT UNIQUE,
+        stripe_subscription_id TEXT,
+        plan_status TEXT,
+        plan_renews_at TEXT,
+        created_at TEXT NOT NULL,
+        last_login_at TEXT
+      );
+      -- Existing single-user data belongs to the local user.
+      INSERT INTO users (id, login, name, created_at)
+        VALUES (1, 'local', '本地用户', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+      CREATE TABLE sessions (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      );
+      CREATE INDEX sessions_user ON sessions (user_id);
+
+      ALTER TABLE repos ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE generations ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE share_events ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE ai_runs ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+      ALTER TABLE usage_events ADD COLUMN user_id INTEGER NOT NULL DEFAULT 1;
+      CREATE INDEX repos_user ON repos (user_id);
+      CREATE INDEX generations_user_created ON generations (user_id, created_at DESC);
+      CREATE INDEX ai_runs_user_month ON ai_runs (user_id, month);
+      CREATE INDEX usage_events_user_month ON usage_events (user_id, month);
+
+      CREATE TABLE credentials_v2 (
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        ciphertext TEXT NOT NULL,
+        iv TEXT NOT NULL,
+        tag TEXT NOT NULL,
+        hint TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, name)
+      );
+      INSERT INTO credentials_v2 SELECT 1, name, ciphertext, iv, tag, hint, updated_at FROM credentials;
+      DROP TABLE credentials;
+      ALTER TABLE credentials_v2 RENAME TO credentials;
+
+      CREATE TABLE voice_profiles (
+        user_id INTEGER PRIMARY KEY,
+        profile_json TEXT NOT NULL,
+        source TEXT NOT NULL,
+        samples_count INTEGER NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO voice_profiles SELECT 1, profile_json, source, samples_count, updated_at FROM voice_profile;
+      DROP TABLE voice_profile;
+    `,
+  },
 ];
 
 export function migrate(db: Db): number[] {

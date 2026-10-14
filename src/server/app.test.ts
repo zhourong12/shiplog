@@ -9,8 +9,11 @@ import type { Plan } from "../shared/schemas.js";
 import type { StructuredLlm, StructuredRequest } from "./ai/llm.js";
 import { createApp } from "./app.js";
 import type { AppConfig } from "./config.js";
-import { migrate, openDatabase, type Db } from "./db/database.js";
+import { DatabaseSync } from "node:sqlite";
+import { migrate, migrations, openDatabase, type Db } from "./db/database.js";
+import { LOCAL_USER_ID } from "./db/stores.js";
 import { ShipLogService } from "./services/shiplogService.js";
+import { testConfig } from "./testing.js";
 
 let root: string;
 let repoPath: string;
@@ -120,19 +123,13 @@ class ScriptedLlm implements StructuredLlm {
 
 function setup(options: { plan?: Plan; appToken?: string | null; aiConfigured?: boolean } = {}) {
   const db: Db = openDatabase(":memory:");
-  const config: AppConfig = {
-    port: 0,
-    host: "127.0.0.1",
-    dbPath: ":memory:",
+  const config: AppConfig = testConfig({
     keyFilePath: join(root, ".key"),
     plan: options.plan ?? "free",
     appToken: options.appToken ?? null,
     localRoots: [root],
-    githubApiBaseUrl: "https://api.github.invalid",
     aiConfigured: options.aiConfigured ?? true,
-    model: "fake",
-    isProduction: false,
-  };
+  });
   const llm = new ScriptedLlm();
   const service = new ShipLogService({
     db,
@@ -164,7 +161,7 @@ describe("API", () => {
     const health = await request(secured.app).get("/api/health").expect(200);
     expect(health.body.data).toMatchObject({
       ok: true,
-      plan: "free",
+      authMode: "local",
       authRequired: true,
       ai: { configured: true },
     });
@@ -283,7 +280,8 @@ describe("API", () => {
     const repo = await request(ctx.app)
       .post("/api/repos")
       .send({ kind: "local", localPath: repoPath });
-    for (let index = 0; index < 10; index += 1) ctx.service.usage.recordRun("generation", null);
+    for (let index = 0; index < 10; index += 1)
+      ctx.service.usage.recordRun(LOCAL_USER_ID, "generation", null);
     const generated = await request(ctx.app)
       .post(`/api/repos/${repo.body.data.id}/generate`)
       .send({ ...windowBody(), platforms: ["x"] })
@@ -333,7 +331,7 @@ describe("API", () => {
       ciphertext: string;
     };
     expect(row.ciphertext).not.toContain(token);
-    expect(ctx.service.credentials.get("github_token")).toBe(token);
+    expect(ctx.service.credentials.get(LOCAL_USER_ID, "github_token")).toBe(token);
     await request(ctx.app).put("/api/credentials/github").send({ token: "short" }).expect(400);
     await request(ctx.app).delete("/api/credentials/github").expect(204);
     const status = await request(ctx.app).get("/api/credentials/github").expect(200);
@@ -371,6 +369,30 @@ describe("migrations", () => {
     const versions = db.prepare("SELECT version FROM schema_migrations").all() as Array<{
       version: number;
     }>;
-    expect(versions.map((row) => row.version)).toEqual([1]);
+    expect(versions.map((row) => row.version)).toEqual(migrations.map((m) => m.version));
+  });
+
+  it("moves single-user data to the local user when upgrading from version 1", () => {
+    const db = new DatabaseSync(":memory:");
+    db.exec(
+      "CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)",
+    );
+    db.exec(migrations[0]!.sql);
+    db.prepare("INSERT INTO schema_migrations VALUES (1, 'initial schema', 'x')").run();
+    db.prepare(
+      "INSERT INTO repos (kind, label, local_path, created_at) VALUES ('local', 'app', '/x', 'now')",
+    ).run();
+    db.prepare("INSERT INTO credentials VALUES ('github_token', 'c', 'i', 't', 'h', 'now')").run();
+    db.prepare("INSERT INTO voice_profile VALUES (1, '{}', 'manual', 0, 'now')").run();
+    expect(migrate(db)).toEqual(migrations.slice(1).map((m) => m.version));
+    expect(db.prepare("SELECT user_id FROM repos").get()).toEqual({ user_id: LOCAL_USER_ID });
+    expect(db.prepare("SELECT user_id, name FROM credentials").get()).toEqual({
+      user_id: LOCAL_USER_ID,
+      name: "github_token",
+    });
+    expect(db.prepare("SELECT user_id FROM voice_profiles").get()).toEqual({
+      user_id: LOCAL_USER_ID,
+    });
+    expect(db.prepare("SELECT login FROM users WHERE id = 1").get()).toEqual({ login: "local" });
   });
 });

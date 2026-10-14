@@ -3,7 +3,9 @@ import type {
   Draft,
   GenerationResult,
   GenerationSummary,
+  GithubRepoOption,
   HealthReport,
+  MeReport,
   PlatformId,
   PreviewReport,
   RepoSummary,
@@ -99,6 +101,9 @@ export interface TimeWindow {
 
 export const api = {
   health: () => call<HealthReport>("GET", "/api/health"),
+  me: () => call<MeReport>("GET", "/api/me"),
+  logout: () => call<void>("POST", "/api/auth/logout"),
+  githubRepos: () => call<GithubRepoOption[]>("GET", "/api/github/repos"),
   repos: () => call<RepoSummary[]>("GET", "/api/repos"),
   addLocalRepo: (localPath: string, productContext: string | null) =>
     call<RepoSummary>("POST", "/api/repos", { kind: "local", localPath, productContext }),
@@ -141,6 +146,8 @@ export const api = {
   saveVoice: (profile: VoiceProfile) => call<VoiceState>("PUT", "/api/voice", { profile }),
   learnVoice: (samples: string) => call<VoiceState>("POST", "/api/voice/learn", { samples }),
   usage: () => call<UsageReport>("GET", "/api/usage"),
+  billingCheckout: () => call<{ url: string }>("POST", "/api/billing/checkout"),
+  billingPortal: () => call<{ url: string }>("POST", "/api/billing/portal"),
 };
 
 /** The viewer's local calendar day, used for streaks. */

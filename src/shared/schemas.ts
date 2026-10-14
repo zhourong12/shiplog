@@ -262,13 +262,47 @@ export interface GenerationSummary {
   sharedPlatforms: PlatformId[];
 }
 
+/** Public server capabilities; contains no user data. */
 export interface HealthReport {
   ok: true;
   version: string;
   ai: { configured: boolean; model: string | null };
-  plan: Plan;
+  authMode: "local" | "github";
+  /** Local mode only: SHIPLOG_APP_TOKEN must be sent. */
   authRequired: boolean;
   localReposEnabled: boolean;
+  billingEnabled: boolean;
+  emailEnabled: boolean;
+}
+
+export interface MeReport {
+  authMode: "local" | "github";
+  authenticated: boolean;
+  user: { id: number; login: string; name: string | null; avatarUrl: string | null } | null;
+  plan: Plan;
+  github: {
+    /** Signed in with GitHub (OAuth token stored). */
+    oauth: boolean;
+    /** The OAuth token can read private repositories. */
+    privateRepos: boolean;
+    /** A personal access token is stored (local mode). */
+    pat: boolean;
+  };
+  billing: {
+    enabled: boolean;
+    status: string | null;
+    renewsAt: string | null;
+    canManage: boolean;
+  };
+}
+
+export interface GithubRepoOption {
+  owner: string;
+  name: string;
+  fullName: string;
+  private: boolean;
+  pushedAt: string | null;
+  description: string | null;
 }
 
 export interface ActivityReport {

@@ -1,8 +1,10 @@
+import { createHash, randomBytes } from "node:crypto";
 import {
   VoiceProfileSchema,
   defaultVoiceProfile,
   type GenerationResult,
   type GenerationSummary,
+  type Plan,
   type PlatformId,
   type RepoSummary,
   type UsageSummary,
@@ -13,6 +15,165 @@ import type { Db } from "./database.js";
 
 export function monthOf(date: Date): string {
   return date.toISOString().slice(0, 7);
+}
+
+/** The id of the implicit user that owns everything in single-user (local) mode. */
+export const LOCAL_USER_ID = 1;
+
+export interface UserRecord {
+  id: number;
+  githubId: number | null;
+  login: string;
+  name: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+  plan: Plan;
+  stripeCustomerId: string | null;
+  stripeSubscriptionId: string | null;
+  planStatus: string | null;
+  planRenewsAt: string | null;
+  createdAt: string;
+}
+
+interface UserRow {
+  id: number;
+  github_id: number | null;
+  login: string;
+  name: string | null;
+  avatar_url: string | null;
+  email: string | null;
+  plan: Plan;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  plan_status: string | null;
+  plan_renews_at: string | null;
+  created_at: string;
+}
+
+function toUser(row: UserRow): UserRecord {
+  return {
+    id: row.id,
+    githubId: row.github_id,
+    login: row.login,
+    name: row.name,
+    avatarUrl: row.avatar_url,
+    email: row.email,
+    plan: row.plan,
+    stripeCustomerId: row.stripe_customer_id,
+    stripeSubscriptionId: row.stripe_subscription_id,
+    planStatus: row.plan_status,
+    planRenewsAt: row.plan_renews_at,
+    createdAt: row.created_at,
+  };
+}
+
+export class UserStore {
+  constructor(private readonly db: Db) {}
+
+  get(id: number): UserRecord | null {
+    const row = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as unknown as
+      UserRow | undefined;
+    return row ? toUser(row) : null;
+  }
+
+  byStripeCustomer(customerId: string): UserRecord | null {
+    const row = this.db
+      .prepare("SELECT * FROM users WHERE stripe_customer_id = ?")
+      .get(customerId) as unknown as UserRow | undefined;
+    return row ? toUser(row) : null;
+  }
+
+  upsertGithubUser(profile: {
+    githubId: number;
+    login: string;
+    name: string | null;
+    avatarUrl: string | null;
+    email: string | null;
+  }): UserRecord {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO users (github_id, login, name, avatar_url, email, created_at, last_login_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(github_id) DO UPDATE SET login = excluded.login, name = excluded.name,
+           avatar_url = excluded.avatar_url, email = COALESCE(excluded.email, users.email),
+           last_login_at = excluded.last_login_at`,
+      )
+      .run(
+        profile.githubId,
+        profile.login,
+        profile.name,
+        profile.avatarUrl,
+        profile.email,
+        now,
+        now,
+      );
+    const row = this.db
+      .prepare("SELECT * FROM users WHERE github_id = ?")
+      .get(profile.githubId) as unknown as UserRow;
+    return toUser(row);
+  }
+
+  setStripeCustomer(userId: number, customerId: string): void {
+    this.db.prepare("UPDATE users SET stripe_customer_id = ? WHERE id = ?").run(customerId, userId);
+  }
+
+  setPlan(
+    userId: number,
+    update: {
+      plan: Plan;
+      subscriptionId: string | null;
+      status: string | null;
+      renewsAt: string | null;
+    },
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE users SET plan = ?, stripe_subscription_id = ?, plan_status = ?, plan_renews_at = ?
+         WHERE id = ?`,
+      )
+      .run(update.plan, update.subscriptionId, update.status, update.renewsAt, userId);
+  }
+}
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Server-side sessions. Only a hash of the cookie value is stored. */
+export class SessionStore {
+  constructor(private readonly db: Db) {}
+
+  create(userId: number, ttlMs: number, now = new Date()): { token: string; expiresAt: Date } {
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(now.getTime() + ttlMs);
+    this.db
+      .prepare(
+        "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+      )
+      .run(hashToken(token), userId, now.toISOString(), expiresAt.toISOString());
+    return { token, expiresAt };
+  }
+
+  userIdFor(token: string, now = new Date()): number | null {
+    const row = this.db
+      .prepare("SELECT user_id, expires_at FROM sessions WHERE token_hash = ?")
+      .get(hashToken(token)) as { user_id: number; expires_at: string } | undefined;
+    if (!row) return null;
+    if (row.expires_at <= now.toISOString()) {
+      this.delete(token);
+      return null;
+    }
+    return row.user_id;
+  }
+
+  delete(token: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE token_hash = ?").run(hashToken(token));
+  }
+
+  purgeExpired(now = new Date()): void {
+    this.db.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(now.toISOString());
+  }
 }
 
 interface RepoRow {
@@ -41,47 +202,53 @@ function toRepo(row: RepoRow): RepoSummary {
   };
 }
 
+const repoSelect = `SELECT r.*, (SELECT MAX(created_at) FROM generations g WHERE g.repo_id = r.id) AS last_generated_at
+  FROM repos r`;
+
+/** Every query is scoped by user id; a row of another user is indistinguishable from none. */
 export class RepoStore {
   constructor(private readonly db: Db) {}
 
-  list(): RepoSummary[] {
+  list(userId: number): RepoSummary[] {
     const rows = this.db
-      .prepare(
-        `SELECT r.*, (SELECT MAX(created_at) FROM generations g WHERE g.repo_id = r.id) AS last_generated_at
-         FROM repos r ORDER BY r.id`,
-      )
-      .all() as unknown as RepoRow[];
+      .prepare(`${repoSelect} WHERE r.user_id = ? ORDER BY r.id`)
+      .all(userId) as unknown as RepoRow[];
     return rows.map(toRepo);
   }
 
-  get(id: number): RepoSummary | null {
+  get(userId: number, id: number): RepoSummary | null {
     const row = this.db
-      .prepare(
-        `SELECT r.*, (SELECT MAX(created_at) FROM generations g WHERE g.repo_id = r.id) AS last_generated_at
-         FROM repos r WHERE r.id = ?`,
-      )
-      .get(id) as unknown as RepoRow | undefined;
+      .prepare(`${repoSelect} WHERE r.user_id = ? AND r.id = ?`)
+      .get(userId, id) as unknown as RepoRow | undefined;
     return row ? toRepo(row) : null;
   }
 
-  count(): number {
-    return (this.db.prepare("SELECT COUNT(*) AS n FROM repos").get() as { n: number }).n;
+  count(userId: number): number {
+    return (
+      this.db.prepare("SELECT COUNT(*) AS n FROM repos WHERE user_id = ?").get(userId) as {
+        n: number;
+      }
+    ).n;
   }
 
-  create(input: {
-    kind: "local" | "github";
-    label: string;
-    localPath?: string | null;
-    githubOwner?: string | null;
-    githubRepo?: string | null;
-    productContext?: string | null;
-  }): RepoSummary {
+  create(
+    userId: number,
+    input: {
+      kind: "local" | "github";
+      label: string;
+      localPath?: string | null;
+      githubOwner?: string | null;
+      githubRepo?: string | null;
+      productContext?: string | null;
+    },
+  ): RepoSummary {
     const result = this.db
       .prepare(
-        `INSERT INTO repos (kind, label, local_path, github_owner, github_repo, product_context, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO repos (user_id, kind, label, local_path, github_owner, github_repo, product_context, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
+        userId,
         input.kind,
         input.label,
         input.localPath ?? null,
@@ -90,31 +257,40 @@ export class RepoStore {
         input.productContext ?? null,
         new Date().toISOString(),
       );
-    return this.get(Number(result.lastInsertRowid))!;
+    return this.get(userId, Number(result.lastInsertRowid))!;
   }
 
-  updateProductContext(id: number, productContext: string | null): RepoSummary | null {
-    this.db.prepare("UPDATE repos SET product_context = ? WHERE id = ?").run(productContext, id);
-    return this.get(id);
+  updateProductContext(
+    userId: number,
+    id: number,
+    productContext: string | null,
+  ): RepoSummary | null {
+    this.db
+      .prepare("UPDATE repos SET product_context = ? WHERE user_id = ? AND id = ?")
+      .run(productContext, userId, id);
+    return this.get(userId, id);
   }
 
-  delete(id: number): boolean {
-    return this.db.prepare("DELETE FROM repos WHERE id = ?").run(id).changes > 0;
+  delete(userId: number, id: number): boolean {
+    return (
+      this.db.prepare("DELETE FROM repos WHERE user_id = ? AND id = ?").run(userId, id).changes > 0
+    );
   }
 }
 
 export class GenerationStore {
   constructor(private readonly db: Db) {}
 
-  save(result: GenerationResult): void {
+  save(userId: number, result: GenerationResult): void {
     this.db
       .prepare(
-        `INSERT INTO generations (id, repo_id, mode, window_since, window_until, result_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET result_json = excluded.result_json`,
+        `INSERT INTO generations (id, user_id, repo_id, mode, window_since, window_until, result_json, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET result_json = excluded.result_json WHERE generations.user_id = excluded.user_id`,
       )
       .run(
         result.id,
+        userId,
         result.repoId,
         result.mode,
         result.window.since,
@@ -124,26 +300,32 @@ export class GenerationStore {
       );
   }
 
-  get(id: string): GenerationResult | null {
-    const row = this.db.prepare("SELECT result_json FROM generations WHERE id = ?").get(id) as
-      { result_json: string } | undefined;
+  get(userId: number, id: string): GenerationResult | null {
+    const row = this.db
+      .prepare("SELECT result_json FROM generations WHERE user_id = ? AND id = ?")
+      .get(userId, id) as { result_json: string } | undefined;
     return row ? (JSON.parse(row.result_json) as GenerationResult) : null;
   }
 
-  list(options: { repoId?: number; limit?: number } = {}): GenerationSummary[] {
+  list(userId: number, options: { repoId?: number; limit?: number } = {}): GenerationSummary[] {
     const limit = Math.min(Math.max(options.limit ?? 30, 1), 100);
     const rows = (
       options.repoId === undefined
         ? this.db
-            .prepare("SELECT id, result_json FROM generations ORDER BY created_at DESC LIMIT ?")
-            .all(limit)
+            .prepare(
+              "SELECT id, result_json FROM generations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+            )
+            .all(userId, limit)
         : this.db
             .prepare(
-              "SELECT id, result_json FROM generations WHERE repo_id = ? ORDER BY created_at DESC LIMIT ?",
+              "SELECT id, result_json FROM generations WHERE user_id = ? AND repo_id = ? ORDER BY created_at DESC LIMIT ?",
             )
-            .all(options.repoId, limit)
+            .all(userId, options.repoId, limit)
     ) as Array<{ id: string; result_json: string }>;
-    const shared = this.sharedPlatformsFor(rows.map((row) => row.id));
+    const shared = this.sharedPlatformsFor(
+      userId,
+      rows.map((row) => row.id),
+    );
     return rows.map((row) => {
       const result = JSON.parse(row.result_json) as GenerationResult;
       return {
@@ -161,6 +343,7 @@ export class GenerationStore {
   }
 
   recordShare(
+    userId: number,
     generationId: string,
     repoId: number | null,
     platform: PlatformId,
@@ -168,33 +351,40 @@ export class GenerationStore {
   ): void {
     this.db
       .prepare(
-        `INSERT INTO share_events (generation_id, repo_id, platform, shared_day, shared_at) VALUES (?, ?, ?, ?, ?)
+        `INSERT INTO share_events (user_id, generation_id, repo_id, platform, shared_day, shared_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(generation_id, platform) DO NOTHING`,
       )
-      .run(generationId, repoId, platform, day, new Date().toISOString());
+      .run(userId, generationId, repoId, platform, day, new Date().toISOString());
   }
 
-  sharedPlatformsFor(ids: string[]): Map<string, PlatformId[]> {
+  sharedPlatformsFor(userId: number, ids: string[]): Map<string, PlatformId[]> {
     const map = new Map<string, PlatformId[]>();
     if (ids.length === 0) return map;
     const placeholders = ids.map(() => "?").join(",");
     const rows = this.db
       .prepare(
-        `SELECT generation_id, platform FROM share_events WHERE generation_id IN (${placeholders})`,
+        `SELECT generation_id, platform FROM share_events
+         WHERE user_id = ? AND generation_id IN (${placeholders})`,
       )
-      .all(...ids) as Array<{ generation_id: string; platform: PlatformId }>;
-    for (const row of rows)
+      .all(userId, ...ids) as Array<{ generation_id: string; platform: PlatformId }>;
+    for (const row of rows) {
       map.set(row.generation_id, [...(map.get(row.generation_id) ?? []), row.platform]);
+    }
     return map;
   }
 
-  sharedDays(repoId: number | null): Set<string> {
+  sharedDays(userId: number, repoId: number | null): Set<string> {
     const rows = (
       repoId === null
-        ? this.db.prepare("SELECT DISTINCT shared_day FROM share_events").all()
+        ? this.db
+            .prepare("SELECT DISTINCT shared_day FROM share_events WHERE user_id = ?")
+            .all(userId)
         : this.db
-            .prepare("SELECT DISTINCT shared_day FROM share_events WHERE repo_id = ?")
-            .all(repoId)
+            .prepare(
+              "SELECT DISTINCT shared_day FROM share_events WHERE user_id = ? AND repo_id = ?",
+            )
+            .all(userId, repoId)
     ) as Array<{ shared_day: string }>;
     return new Set(rows.map((row) => row.shared_day));
   }
@@ -203,24 +393,34 @@ export class GenerationStore {
 export class UsageStore {
   constructor(private readonly db: Db) {}
 
-  recordRun(kind: "generation" | "voice", referenceId: string | null, now = new Date()): void {
+  recordRun(
+    userId: number,
+    kind: "generation" | "voice",
+    referenceId: string | null,
+    now = new Date(),
+  ): void {
     this.db
-      .prepare("INSERT INTO ai_runs (kind, reference_id, month, created_at) VALUES (?, ?, ?, ?)")
-      .run(kind, referenceId, monthOf(now), now.toISOString());
+      .prepare(
+        "INSERT INTO ai_runs (user_id, kind, reference_id, month, created_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(userId, kind, referenceId, monthOf(now), now.toISOString());
   }
 
   recordUsage(
+    userId: number,
     referenceId: string | null,
     usage: UsageSummary[],
     labels: string[],
     now = new Date(),
   ): void {
     const statement = this.db.prepare(
-      `INSERT INTO usage_events (reference_id, label, model, input_tokens, output_tokens, cache_read_tokens,
-         cache_write_tokens, cost_usd, month, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO usage_events (user_id, reference_id, label, model, input_tokens, output_tokens,
+         cache_read_tokens, cache_write_tokens, cost_usd, month, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     usage.forEach((item, index) => {
       statement.run(
+        userId,
         referenceId,
         labels[index] ?? "ai",
         item.model,
@@ -235,15 +435,18 @@ export class UsageStore {
     });
   }
 
-  runsInMonth(month: string): number {
+  runsInMonth(userId: number, month: string): number {
     return (
-      this.db.prepare("SELECT COUNT(*) AS n FROM ai_runs WHERE month = ?").get(month) as {
-        n: number;
-      }
+      this.db
+        .prepare("SELECT COUNT(*) AS n FROM ai_runs WHERE user_id = ? AND month = ?")
+        .get(userId, month) as { n: number }
     ).n;
   }
 
-  monthTotals(month: string): {
+  monthTotals(
+    userId: number,
+    month: string,
+  ): {
     inputTokens: number;
     outputTokens: number;
     costUsd: number;
@@ -255,9 +458,9 @@ export class UsageStore {
                 COALESCE(SUM(output_tokens), 0) AS output_tokens,
                 COALESCE(SUM(cost_usd), 0) AS cost_usd,
                 COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN 1 ELSE 0 END), 0) AS unpriced
-         FROM usage_events WHERE month = ?`,
+         FROM usage_events WHERE user_id = ? AND month = ?`,
       )
-      .get(month) as {
+      .get(userId, month) as {
       input_tokens: number;
       output_tokens: number;
       cost_usd: number;
@@ -275,12 +478,12 @@ export class UsageStore {
 export class VoiceStore {
   constructor(private readonly db: Db) {}
 
-  get(): VoiceState {
+  get(userId: number): VoiceState {
     const row = this.db
       .prepare(
-        "SELECT profile_json, source, samples_count, updated_at FROM voice_profile WHERE id = 1",
+        "SELECT profile_json, source, samples_count, updated_at FROM voice_profiles WHERE user_id = ?",
       )
-      .get() as
+      .get(userId) as
       | {
           profile_json: string;
           source: VoiceState["source"];
@@ -288,8 +491,9 @@ export class VoiceStore {
           updated_at: string;
         }
       | undefined;
-    if (!row)
+    if (!row) {
       return { profile: defaultVoiceProfile, source: "default", samplesCount: 0, updatedAt: null };
+    }
     const parsed = VoiceProfileSchema.safeParse(JSON.parse(row.profile_json));
     return {
       profile: parsed.success ? parsed.data : defaultVoiceProfile,
@@ -299,14 +503,20 @@ export class VoiceStore {
     };
   }
 
-  save(profile: VoiceProfile, source: "learned" | "manual", samplesCount: number): VoiceState {
+  save(
+    userId: number,
+    profile: VoiceProfile,
+    source: "learned" | "manual",
+    samplesCount: number,
+  ): VoiceState {
     this.db
       .prepare(
-        `INSERT INTO voice_profile (id, profile_json, source, samples_count, updated_at) VALUES (1, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET profile_json = excluded.profile_json, source = excluded.source,
+        `INSERT INTO voice_profiles (user_id, profile_json, source, samples_count, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET profile_json = excluded.profile_json, source = excluded.source,
            samples_count = excluded.samples_count, updated_at = excluded.updated_at`,
       )
-      .run(JSON.stringify(profile), source, samplesCount, new Date().toISOString());
-    return this.get();
+      .run(userId, JSON.stringify(profile), source, samplesCount, new Date().toISOString());
+    return this.get(userId);
   }
 }

@@ -63,31 +63,33 @@ export class CredentialStore {
     private readonly key: () => Buffer,
   ) {}
 
-  set(name: string, value: string): { hint: string } {
+  set(userId: number, name: string, value: string, hint = value.slice(-4)): { hint: string } {
     const sealed = encryptSecret(this.key(), value);
-    const hint = value.slice(-4);
     this.db
       .prepare(
-        `INSERT INTO credentials (name, ciphertext, iv, tag, hint, updated_at) VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(name) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, tag = excluded.tag,
-           hint = excluded.hint, updated_at = excluded.updated_at`,
+        `INSERT INTO credentials (user_id, name, ciphertext, iv, tag, hint, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(user_id, name) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv,
+           tag = excluded.tag, hint = excluded.hint, updated_at = excluded.updated_at`,
       )
-      .run(name, sealed.ciphertext, sealed.iv, sealed.tag, hint, new Date().toISOString());
+      .run(userId, name, sealed.ciphertext, sealed.iv, sealed.tag, hint, new Date().toISOString());
     return { hint };
   }
 
-  get(name: string): string | null {
+  get(userId: number, name: string): string | null {
     const row = this.db
-      .prepare("SELECT ciphertext, iv, tag FROM credentials WHERE name = ?")
-      .get(name) as { ciphertext: string; iv: string; tag: string } | undefined;
+      .prepare("SELECT ciphertext, iv, tag FROM credentials WHERE user_id = ? AND name = ?")
+      .get(userId, name) as { ciphertext: string; iv: string; tag: string } | undefined;
     if (!row) return null;
     return decryptSecret(this.key(), row);
   }
 
-  status(name: string): { configured: boolean; hint: string | null; updatedAt: string | null } {
+  status(
+    userId: number,
+    name: string,
+  ): { configured: boolean; hint: string | null; updatedAt: string | null } {
     const row = this.db
-      .prepare("SELECT hint, updated_at FROM credentials WHERE name = ?")
-      .get(name) as { hint: string; updated_at: string } | undefined;
+      .prepare("SELECT hint, updated_at FROM credentials WHERE user_id = ? AND name = ?")
+      .get(userId, name) as { hint: string; updated_at: string } | undefined;
     return {
       configured: Boolean(row),
       hint: row?.hint ?? null,
@@ -95,7 +97,7 @@ export class CredentialStore {
     };
   }
 
-  delete(name: string): void {
-    this.db.prepare("DELETE FROM credentials WHERE name = ?").run(name);
+  delete(userId: number, name: string): void {
+    this.db.prepare("DELETE FROM credentials WHERE user_id = ? AND name = ?").run(userId, name);
   }
 }

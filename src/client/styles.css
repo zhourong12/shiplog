@@ -1241,3 +1241,201 @@ pre {
 .payload {
   max-height: none;
 }
+
+/* Account */
+
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.avatar {
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.account-login {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.billing {
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* Landing */
+
+.landing {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 48px 24px 32px;
+  display: grid;
+  gap: 56px;
+}
+
+.landing-hero {
+  text-align: center;
+  display: grid;
+  gap: 16px;
+  justify-items: center;
+  padding: 24px 0 8px;
+}
+
+.landing-hero h1 {
+  text-wrap: balance;
+  font-size: clamp(28px, 5vw, 44px);
+  line-height: 1.2;
+  max-width: 780px;
+  margin: 0;
+}
+
+.landing-lead {
+  max-width: 680px;
+  font-size: 17px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.landing-actions {
+  justify-content: center;
+}
+
+.landing-section h2 {
+  font-size: 24px;
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.landing-steps,
+.landing-trusts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.landing-step,
+.landing-trust,
+.price-card {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.landing-step h3,
+.landing-trust h3 {
+  font-size: 17px;
+  margin: 8px 0;
+}
+
+.landing-step p,
+.landing-trust p {
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.landing-step-index {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.landing-trust > svg {
+  color: var(--accent);
+}
+
+.pricing {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
+  justify-content: center;
+  gap: 16px;
+}
+
+.price-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.price-card h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 18px;
+}
+
+.price-pro {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.price {
+  font-size: 28px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.price-card ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.price-card li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.price-card li svg {
+  flex: none;
+  margin-top: 4px;
+  color: var(--good);
+}
+
+.faq {
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  gap: 16px;
+}
+
+.faq dt {
+  font-weight: 600;
+}
+
+.faq dd {
+  margin: 4px 0 0;
+  color: var(--text-secondary);
+}
+
+.landing-footer {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 600px) {
+  .landing {
+    padding: 24px 16px;
+    gap: 40px;
+  }
+
+  .account-login {
+    display: none;
+  }
+}
